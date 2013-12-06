@@ -1,0 +1,14 @@
+prefix=./dist-x64/
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: libavdevice
+Description: FFmpeg device handling library
+Version: 54.2.101
+Requires: libavfilter = 3.17.100, libavformat = 54.29.104
+Requires.private: 
+Conflicts:
+Libs: -L${libdir} -lavdevice -L/opt/local/lib -lSDLmain -Wl,-framework,AppKit -lSDL -Wl,-framework,Cocoa -lm -framework CoreFoundation -framework VideoDecodeAcceleration -framework QuartzCore -lz
+Libs.private: 
+Cflags: -I${includedir}

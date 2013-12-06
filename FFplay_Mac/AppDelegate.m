@@ -7,12 +7,18 @@
 //
 
 #import "AppDelegate.h"
+#include "ffplay.h"
 
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
     // Insert code here to initialize your application
+    char argv[2][100]; //= {"ffplay", "/Users/sunjun/Desktop/desktop/测试视频/mkv/roman.mkv"};
+    strcpy(argv[0], "ffplay");
+    strcpy(argv[1], "/Users/sunjun/Desktop/desktop/xiao.flv");
+    ffplay(2, argv);
+    
 }
 
 @end
