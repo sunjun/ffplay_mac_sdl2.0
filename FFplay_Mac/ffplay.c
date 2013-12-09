@@ -23,43 +23,7 @@
  * simple media player based on the FFmpeg libraries
  */
 
-#include "config.h"
-#include <inttypes.h>
-#include <math.h>
-#include <limits.h>
-#include <signal.h>
-#include "libavutil/avstring.h"
-#include "libavutil/colorspace.h"
-#include "libavutil/mathematics.h"
-#include "libavutil/pixdesc.h"
-#include "libavutil/imgutils.h"
-#include "libavutil/dict.h"
-#include "libavutil/parseutils.h"
-#include "libavutil/samplefmt.h"
-#include "libavutil/avassert.h"
-#include "libavutil/time.h"
-#include "libavformat/avformat.h"
-#include "libavdevice/avdevice.h"
-#include "libswscale/swscale.h"
-#include "libavutil/opt.h"
-#include "libavcodec/avfft.h"
-#include "libswresample/swresample.h"
-
-#if CONFIG_AVFILTER
-# include "libavfilter/avcodec.h"
-# include "libavfilter/avfilter.h"
-# include "libavfilter/avfiltergraph.h"
-# include "libavfilter/buffersink.h"
-# include "libavfilter/buffersrc.h"
-#endif
-
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_thread.h>
-//#include "SDL/SDL_syswm.h"
-
-#include "cmdutils.h"
-
-#include <assert.h>
+#include "ffplay.h"
 
 const char program_name[] = "ffplay";
 const int program_birth_year = 2003;
@@ -104,7 +68,10 @@ typedef struct VideoPicture {
     double pts;                                  ///< presentation time stamp for this picture
     int64_t pos;                                 ///< byte position in file
     int skip;
-    SDL_Overlay *bmp;
+//    SDL_Overlay *bmp;
+    AVPicture *picture;
+    int numBytes;
+    void *buffer;
     int width, height; /* source height & width */
     AVRational sample_aspect_ratio;
     int allocated;
@@ -299,7 +266,13 @@ static AVPacket flush_pkt;
 #define FF_REFRESH_EVENT (SDL_USEREVENT + 1)
 #define FF_QUIT_EVENT    (SDL_USEREVENT + 2)
 
-static SDL_Surface *screen;
+//static SDL_Surface *screen;
+
+//add by sunjun
+SDL_Window *sdl_window = NULL;
+static SDL_Renderer *renderer = NULL;
+static SDL_Texture *texture = NULL;
+const void *data;
 
 void av_noreturn exit_program(int ret)
 {
@@ -720,34 +693,56 @@ static void video_image_display(VideoState *is)
     int i;
 
     vp = &is->pictq[is->pictq_rindex];
-    if (vp->bmp) {
-        if (is->subtitle_st) {
-            if (is->subpq_size > 0) {
-                sp = &is->subpq[is->subpq_rindex];
+    if (vp->picture) {
+        //注释掉字幕显示
+//        if (is->subtitle_st) {
+//            if (is->subpq_size > 0) {
+//                sp = &is->subpq[is->subpq_rindex];
+//
+//                if (vp->pts >= sp->pts + ((float) sp->sub.start_display_time / 1000)) {
+//                    SDL_LockYUVOverlay (vp->bmp);
+//
+//                    pict.data[0] = vp->bmp->pixels[0];
+//                    pict.data[1] = vp->bmp->pixels[2];
+//                    pict.data[2] = vp->bmp->pixels[1];
+//
+//                    pict.linesize[0] = vp->bmp->pitches[0];
+//                    pict.linesize[1] = vp->bmp->pitches[2];
+//                    pict.linesize[2] = vp->bmp->pitches[1];
+//
+//                    for (i = 0; i < sp->sub.num_rects; i++)
+//                        blend_subrect(&pict, sp->sub.rects[i],
+//                                      vp->bmp->w, vp->bmp->h);
+//
+//                    SDL_UnlockYUVOverlay (vp->bmp);
+//                }
+//            }
+//        }
 
-                if (vp->pts >= sp->pts + ((float) sp->sub.start_display_time / 1000)) {
-                    SDL_LockYUVOverlay (vp->bmp);
-
-                    pict.data[0] = vp->bmp->pixels[0];
-                    pict.data[1] = vp->bmp->pixels[2];
-                    pict.data[2] = vp->bmp->pixels[1];
-
-                    pict.linesize[0] = vp->bmp->pitches[0];
-                    pict.linesize[1] = vp->bmp->pitches[2];
-                    pict.linesize[2] = vp->bmp->pitches[1];
-
-                    for (i = 0; i < sp->sub.num_rects; i++)
-                        blend_subrect(&pict, sp->sub.rects[i],
-                                      vp->bmp->w, vp->bmp->h);
-
-                    SDL_UnlockYUVOverlay (vp->bmp);
-                }
-            }
+        if (!texture) {
+            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
         }
-
-        calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp);
-
-        SDL_DisplayYUVOverlay(vp->bmp, &rect);
+        
+        void *pixels;
+        int pitch, size;
+        
+        size = vp->width * vp->height;
+        
+        if (SDL_LockTexture(texture, NULL, &pixels, &pitch) < 0) {
+            fprintf(stderr, "Couldn't lock texture: %s\n", SDL_GetError());
+        }
+        
+        memcpy(pixels, vp->picture->data[0], size);
+        memcpy(pixels + size, vp->picture->data[2], size/4);
+        memcpy(pixels + size + size / 4, vp->picture->data[1], size/4);
+        
+        SDL_UnlockTexture(texture);
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, texture, NULL, NULL);
+        SDL_RenderPresent(renderer);
+//        calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp);
+//
+//        SDL_DisplayYUVOverlay(vp->bmp, &rect);
     }
 }
 
@@ -756,145 +751,145 @@ static inline int compute_mod(int a, int b)
     return a < 0 ? a%b + b : a%b;
 }
 
-static void video_audio_display(VideoState *s)
-{
-    int i, i_start, x, y1, y, ys, delay, n, nb_display_channels;
-    int ch, channels, h, h2, bgcolor, fgcolor;
-    int16_t time_diff;
-    int rdft_bits, nb_freq;
-
-    for (rdft_bits = 1; (1 << rdft_bits) < 2 * s->height; rdft_bits++)
-        ;
-    nb_freq = 1 << (rdft_bits - 1);
-
-    /* compute display index : center on currently output samples */
-    channels = s->audio_tgt.channels;
-    nb_display_channels = channels;
-    if (!s->paused) {
-        int data_used= s->show_mode == SHOW_MODE_WAVES ? s->width : (2*nb_freq);
-        n = 2 * channels;
-        delay = s->audio_write_buf_size;
-        delay /= n;
-
-        /* to be more precise, we take into account the time spent since
-           the last buffer computation */
-        if (audio_callback_time) {
-            time_diff = av_gettime() - audio_callback_time;
-            delay -= (time_diff * s->audio_tgt.freq) / 1000000;
-        }
-
-        delay += 2 * data_used;
-        if (delay < data_used)
-            delay = data_used;
-
-        i_start= x = compute_mod(s->sample_array_index - delay * channels, SAMPLE_ARRAY_SIZE);
-        if (s->show_mode == SHOW_MODE_WAVES) {
-            h = INT_MIN;
-            for (i = 0; i < 1000; i += channels) {
-                int idx = (SAMPLE_ARRAY_SIZE + x - i) % SAMPLE_ARRAY_SIZE;
-                int a = s->sample_array[idx];
-                int b = s->sample_array[(idx + 4 * channels) % SAMPLE_ARRAY_SIZE];
-                int c = s->sample_array[(idx + 5 * channels) % SAMPLE_ARRAY_SIZE];
-                int d = s->sample_array[(idx + 9 * channels) % SAMPLE_ARRAY_SIZE];
-                int score = a - d;
-                if (h < score && (b ^ c) < 0) {
-                    h = score;
-                    i_start = idx;
-                }
-            }
-        }
-
-        s->last_i_start = i_start;
-    } else {
-        i_start = s->last_i_start;
-    }
-
-    bgcolor = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
-    if (s->show_mode == SHOW_MODE_WAVES) {
-        fill_rectangle(screen,
-                       s->xleft, s->ytop, s->width, s->height,
-                       bgcolor);
-
-        fgcolor = SDL_MapRGB(screen->format, 0xff, 0xff, 0xff);
-
-        /* total height for one channel */
-        h = s->height / nb_display_channels;
-        /* graph height / 2 */
-        h2 = (h * 9) / 20;
-        for (ch = 0; ch < nb_display_channels; ch++) {
-            i = i_start + ch;
-            y1 = s->ytop + ch * h + (h / 2); /* position of center line */
-            for (x = 0; x < s->width; x++) {
-                y = (s->sample_array[i] * h2) >> 15;
-                if (y < 0) {
-                    y = -y;
-                    ys = y1 - y;
-                } else {
-                    ys = y1;
-                }
-                fill_rectangle(screen,
-                               s->xleft + x, ys, 1, y,
-                               fgcolor);
-                i += channels;
-                if (i >= SAMPLE_ARRAY_SIZE)
-                    i -= SAMPLE_ARRAY_SIZE;
-            }
-        }
-
-        fgcolor = SDL_MapRGB(screen->format, 0x00, 0x00, 0xff);
-
-        for (ch = 1; ch < nb_display_channels; ch++) {
-            y = s->ytop + ch * h;
-            fill_rectangle(screen,
-                           s->xleft, y, s->width, 1,
-                           fgcolor);
-        }
-        SDL_UpdateRect(screen, s->xleft, s->ytop, s->width, s->height);
-    } else {
-        nb_display_channels= FFMIN(nb_display_channels, 2);
-        if (rdft_bits != s->rdft_bits) {
-            av_rdft_end(s->rdft);
-            av_free(s->rdft_data);
-            s->rdft = av_rdft_init(rdft_bits, DFT_R2C);
-            s->rdft_bits = rdft_bits;
-            s->rdft_data = av_malloc(4 * nb_freq * sizeof(*s->rdft_data));
-        }
-        {
-            FFTSample *data[2];
-            for (ch = 0; ch < nb_display_channels; ch++) {
-                data[ch] = s->rdft_data + 2 * nb_freq * ch;
-                i = i_start + ch;
-                for (x = 0; x < 2 * nb_freq; x++) {
-                    double w = (x-nb_freq) * (1.0 / nb_freq);
-                    data[ch][x] = s->sample_array[i] * (1.0 - w * w);
-                    i += channels;
-                    if (i >= SAMPLE_ARRAY_SIZE)
-                        i -= SAMPLE_ARRAY_SIZE;
-                }
-                av_rdft_calc(s->rdft, data[ch]);
-            }
-            // least efficient way to do this, we should of course directly access it but its more than fast enough
-            for (y = 0; y < s->height; y++) {
-                double w = 1 / sqrt(nb_freq);
-                int a = sqrt(w * sqrt(data[0][2 * y + 0] * data[0][2 * y + 0] + data[0][2 * y + 1] * data[0][2 * y + 1]));
-                int b = (nb_display_channels == 2 ) ? sqrt(w * sqrt(data[1][2 * y + 0] * data[1][2 * y + 0]
-                       + data[1][2 * y + 1] * data[1][2 * y + 1])) : a;
-                a = FFMIN(a, 255);
-                b = FFMIN(b, 255);
-                fgcolor = SDL_MapRGB(screen->format, a, b, (a + b) / 2);
-
-                fill_rectangle(screen,
-                            s->xpos, s->height-y, 1, 1,
-                            fgcolor);
-            }
-        }
-        SDL_UpdateRect(screen, s->xpos, s->ytop, 1, s->height);
-        if (!s->paused)
-            s->xpos++;
-        if (s->xpos >= s->width)
-            s->xpos= s->xleft;
-    }
-}
+//static void video_audio_display(VideoState *s)
+//{
+//    int i, i_start, x, y1, y, ys, delay, n, nb_display_channels;
+//    int ch, channels, h, h2, bgcolor, fgcolor;
+//    int16_t time_diff;
+//    int rdft_bits, nb_freq;
+//
+//    for (rdft_bits = 1; (1 << rdft_bits) < 2 * s->height; rdft_bits++)
+//        ;
+//    nb_freq = 1 << (rdft_bits - 1);
+//
+//    /* compute display index : center on currently output samples */
+//    channels = s->audio_tgt.channels;
+//    nb_display_channels = channels;
+//    if (!s->paused) {
+//        int data_used= s->show_mode == SHOW_MODE_WAVES ? s->width : (2*nb_freq);
+//        n = 2 * channels;
+//        delay = s->audio_write_buf_size;
+//        delay /= n;
+//
+//        /* to be more precise, we take into account the time spent since
+//           the last buffer computation */
+//        if (audio_callback_time) {
+//            time_diff = av_gettime() - audio_callback_time;
+//            delay -= (time_diff * s->audio_tgt.freq) / 1000000;
+//        }
+//
+//        delay += 2 * data_used;
+//        if (delay < data_used)
+//            delay = data_used;
+//
+//        i_start= x = compute_mod(s->sample_array_index - delay * channels, SAMPLE_ARRAY_SIZE);
+//        if (s->show_mode == SHOW_MODE_WAVES) {
+//            h = INT_MIN;
+//            for (i = 0; i < 1000; i += channels) {
+//                int idx = (SAMPLE_ARRAY_SIZE + x - i) % SAMPLE_ARRAY_SIZE;
+//                int a = s->sample_array[idx];
+//                int b = s->sample_array[(idx + 4 * channels) % SAMPLE_ARRAY_SIZE];
+//                int c = s->sample_array[(idx + 5 * channels) % SAMPLE_ARRAY_SIZE];
+//                int d = s->sample_array[(idx + 9 * channels) % SAMPLE_ARRAY_SIZE];
+//                int score = a - d;
+//                if (h < score && (b ^ c) < 0) {
+//                    h = score;
+//                    i_start = idx;
+//                }
+//            }
+//        }
+//
+//        s->last_i_start = i_start;
+//    } else {
+//        i_start = s->last_i_start;
+//    }
+//
+//    bgcolor = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
+//    if (s->show_mode == SHOW_MODE_WAVES) {
+//        fill_rectangle(screen,
+//                       s->xleft, s->ytop, s->width, s->height,
+//                       bgcolor);
+//
+//        fgcolor = SDL_MapRGB(screen->format, 0xff, 0xff, 0xff);
+//
+//        /* total height for one channel */
+//        h = s->height / nb_display_channels;
+//        /* graph height / 2 */
+//        h2 = (h * 9) / 20;
+//        for (ch = 0; ch < nb_display_channels; ch++) {
+//            i = i_start + ch;
+//            y1 = s->ytop + ch * h + (h / 2); /* position of center line */
+//            for (x = 0; x < s->width; x++) {
+//                y = (s->sample_array[i] * h2) >> 15;
+//                if (y < 0) {
+//                    y = -y;
+//                    ys = y1 - y;
+//                } else {
+//                    ys = y1;
+//                }
+//                fill_rectangle(screen,
+//                               s->xleft + x, ys, 1, y,
+//                               fgcolor);
+//                i += channels;
+//                if (i >= SAMPLE_ARRAY_SIZE)
+//                    i -= SAMPLE_ARRAY_SIZE;
+//            }
+//        }
+//
+//        fgcolor = SDL_MapRGB(screen->format, 0x00, 0x00, 0xff);
+//
+//        for (ch = 1; ch < nb_display_channels; ch++) {
+//            y = s->ytop + ch * h;
+//            fill_rectangle(screen,
+//                           s->xleft, y, s->width, 1,
+//                           fgcolor);
+//        }
+//        SDL_UpdateRect(screen, s->xleft, s->ytop, s->width, s->height);
+//    } else {
+//        nb_display_channels= FFMIN(nb_display_channels, 2);
+//        if (rdft_bits != s->rdft_bits) {
+//            av_rdft_end(s->rdft);
+//            av_free(s->rdft_data);
+//            s->rdft = av_rdft_init(rdft_bits, DFT_R2C);
+//            s->rdft_bits = rdft_bits;
+//            s->rdft_data = av_malloc(4 * nb_freq * sizeof(*s->rdft_data));
+//        }
+//        {
+//            FFTSample *data[2];
+//            for (ch = 0; ch < nb_display_channels; ch++) {
+//                data[ch] = s->rdft_data + 2 * nb_freq * ch;
+//                i = i_start + ch;
+//                for (x = 0; x < 2 * nb_freq; x++) {
+//                    double w = (x-nb_freq) * (1.0 / nb_freq);
+//                    data[ch][x] = s->sample_array[i] * (1.0 - w * w);
+//                    i += channels;
+//                    if (i >= SAMPLE_ARRAY_SIZE)
+//                        i -= SAMPLE_ARRAY_SIZE;
+//                }
+//                av_rdft_calc(s->rdft, data[ch]);
+//            }
+//            // least efficient way to do this, we should of course directly access it but its more than fast enough
+//            for (y = 0; y < s->height; y++) {
+//                double w = 1 / sqrt(nb_freq);
+//                int a = sqrt(w * sqrt(data[0][2 * y + 0] * data[0][2 * y + 0] + data[0][2 * y + 1] * data[0][2 * y + 1]));
+//                int b = (nb_display_channels == 2 ) ? sqrt(w * sqrt(data[1][2 * y + 0] * data[1][2 * y + 0]
+//                       + data[1][2 * y + 1] * data[1][2 * y + 1])) : a;
+//                a = FFMIN(a, 255);
+//                b = FFMIN(b, 255);
+//                fgcolor = SDL_MapRGB(screen->format, a, b, (a + b) / 2);
+//
+//                fill_rectangle(screen,
+//                            s->xpos, s->height-y, 1, 1,
+//                            fgcolor);
+//            }
+//        }
+//        SDL_UpdateRect(screen, s->xpos, s->ytop, 1, s->height);
+//        if (!s->paused)
+//            s->xpos++;
+//        if (s->xpos >= s->width)
+//            s->xpos= s->xleft;
+//    }
+//}
 
 static void stream_close(VideoState *is)
 {
@@ -914,9 +909,12 @@ static void stream_close(VideoState *is)
 #if CONFIG_AVFILTER
         avfilter_unref_bufferp(&vp->picref);
 #endif
-        if (vp->bmp) {
-            SDL_FreeYUVOverlay(vp->bmp);
-            vp->bmp = NULL;
+//        if (vp->bmp) {
+//            SDL_FreeYUVOverlay(vp->bmp);
+//            vp->bmp = NULL;
+//        }
+        if (vp->picture) {
+            av_free(vp->picture);
         }
     }
     SDL_DestroyMutex(is->pictq_mutex);
@@ -957,13 +955,14 @@ static void sigterm_handler(int sig)
 
 static int video_open(VideoState *is, int force_set_video_mode)
 {
-    int flags = SDL_HWSURFACE | SDL_ASYNCBLIT | SDL_HWACCEL;
+//    int flags = SDL_HWSURFACE | SDL_ASYNCBLIT | SDL_HWACCEL;
+    int flags = 0;
     int w,h;
     VideoPicture *vp = &is->pictq[is->pictq_rindex];
     SDL_Rect rect;
 
-    if (is_full_screen) flags |= SDL_FULLSCREEN;
-    else                flags |= SDL_RESIZABLE;
+    if (is_full_screen) flags |= SDL_WINDOW_FULLSCREEN;
+    else                flags |= SDL_WINDOW_RESIZABLE;
 
     if (is_full_screen && fs_screen_width) {
         w = fs_screen_width;
@@ -979,25 +978,33 @@ static int video_open(VideoState *is, int force_set_video_mode)
         w = 640;
         h = 480;
     }
-    if (screen && is->width == screen->w && screen->w == w
-       && is->height== screen->h && screen->h == h && !force_set_video_mode)
-        return 0;
-    screen = SDL_SetVideoMode(w, h, 0, flags);
-    if (!screen) {
+//    if (screen && is->width == screen->w && screen->w == w
+//       && is->height== screen->h && screen->h == h && !force_set_video_mode)
+//        return 0;
+//    screen = SDL_SetVideoMode(w, h, 0, flags);
+    
+    if (!window_title)
+        window_title = input_filename;
+
+//    sdl_window = SDL_CreateWindow(window_title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, flags);
+    sdl_window = SDL_CreateWindowFrom(data);
+    printf("%s", SDL_GetError());
+    if (!sdl_window) {
         fprintf(stderr, "SDL: could not set video mode - exiting\n");
         do_exit(is);
     }
-    if (!window_title)
-        window_title = input_filename;
-    SDL_WM_SetCaption(window_title, window_title);
+    
+    renderer = SDL_CreateRenderer(sdl_window, -1, 0);
+    
+//    SDL_WM_SetCaption(window_title, window_title);
 
 //    SDL_Sys
 //    SDL_SysWMinfo windowInfo;
 //    SDL_VERSION(&windowInfo.version);
 //    SDL_GetWMInfo(&windowInfo);
     
-    is->width  = screen->w;
-    is->height = screen->h;
+    is->width  = is->video_st->codec->width;
+    is->height = is->video_st->codec->height;
 
     return 0;
 }
@@ -1005,10 +1012,11 @@ static int video_open(VideoState *is, int force_set_video_mode)
 /* display the current picture, if any */
 static void video_display(VideoState *is)
 {
-    if (!screen)
+    if (!sdl_window)
         video_open(is, 0);
     if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
-        video_audio_display(is);
+//        video_audio_display(is);
+        ;
     else if (is->video_st)
         video_image_display(is);
 }
@@ -1315,15 +1323,15 @@ display:
             av_diff = 0;
             if (is->audio_st && is->video_st)
                 av_diff = get_audio_clock(is) - get_video_clock(is);
-            printf("%7.2f A-V:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"PRId64"/%"PRId64"   \r",
-                   get_master_clock(is),
-                   av_diff,
-                   is->frame_drops_early + is->frame_drops_late,
-                   aqsize / 1024,
-                   vqsize / 1024,
-                   sqsize,
-                   is->video_st ? is->video_st->codec->pts_correction_num_faulty_dts : 0,
-                   is->video_st ? is->video_st->codec->pts_correction_num_faulty_pts : 0);
+//            printf("%7.2f A-V:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"PRId64"/%"PRId64"   \r",
+//                   get_master_clock(is),
+//                   av_diff,
+//                   is->frame_drops_early + is->frame_drops_late,
+//                   aqsize / 1024,
+//                   vqsize / 1024,
+//                   sqsize,
+//                   is->video_st ? is->video_st->codec->pts_correction_num_faulty_dts : 0,
+//                   is->video_st ? is->video_st->codec->pts_correction_num_faulty_pts : 0);
             fflush(stdout);
             last_time = cur_time;
         }
@@ -1338,27 +1346,40 @@ static void alloc_picture(VideoState *is)
 
     vp = &is->pictq[is->pictq_windex];
 
-    if (vp->bmp)
-        SDL_FreeYUVOverlay(vp->bmp);
+//    if (vp->bmp)
+//        SDL_FreeYUVOverlay(vp->bmp);
 
+    if (vp->picture) {
+        av_free(vp->picture);
+        vp->picture = NULL;
+    }
 #if CONFIG_AVFILTER
     avfilter_unref_bufferp(&vp->picref);
 #endif
 
-    video_open(is, 0);
+//    video_open(is, 0);
+//
+//    vp->bmp = SDL_CreateYUVOverlay(vp->width, vp->height,
+//                                   SDL_YV12_OVERLAY,
+//                                   screen);
+//    if (!vp->bmp || vp->bmp->pitches[0] < vp->width) {
+//        /* SDL allocates a buffer smaller than requested if the video
+//         * overlay hardware is unable to support the requested size. */
+//        fprintf(stderr, "Error: the video system does not support an image\n"
+//                        "size of %dx%d pixels. Try using -lowres or -vf \"scale=w:h\"\n"
+//                        "to reduce the image size.\n", vp->width, vp->height );
+//        do_exit(is);
+//    }
+    
+    vp->picture = (AVPicture*)avcodec_alloc_frame();
 
-    vp->bmp = SDL_CreateYUVOverlay(vp->width, vp->height,
-                                   SDL_YV12_OVERLAY,
-                                   screen);
-    if (!vp->bmp || vp->bmp->pitches[0] < vp->width) {
-        /* SDL allocates a buffer smaller than requested if the video
-         * overlay hardware is unable to support the requested size. */
-        fprintf(stderr, "Error: the video system does not support an image\n"
-                        "size of %dx%d pixels. Try using -lowres or -vf \"scale=w:h\"\n"
-                        "to reduce the image size.\n", vp->width, vp->height );
-        do_exit(is);
-    }
-
+    vp->width = is->video_st->codec->width;
+    vp->height = is->video_st->codec->height;
+    vp->numBytes = avpicture_get_size(PIX_FMT_YUV420P, vp->width, vp->height);
+    vp->buffer = av_malloc(vp->numBytes * sizeof(uint8_t));
+    
+    avpicture_fill((AVPicture*) vp->picture, vp->buffer, PIX_FMT_YUV420P,vp->width, vp->height);
+    
     SDL_LockMutex(is->pictq_mutex);
     vp->allocated = 1;
     SDL_CondSignal(is->pictq_cond);
@@ -1412,7 +1433,7 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts1, int64_
 #endif
 
     /* alloc or resize hardware picture buffer */
-    if (!vp->bmp || vp->reallocate || !vp->allocated ||
+    if (!vp->picture || vp->reallocate || !vp->allocated ||
         vp->width  != src_frame->width ||
         vp->height != src_frame->height) {
         SDL_Event event;
@@ -1434,7 +1455,7 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts1, int64_
             SDL_CondWait(is->pictq_cond, is->pictq_mutex);
         }
         /* if the queue is aborted, we have to pop the pending ALLOC event or wait for the allocation to complete */
-        if (is->videoq.abort_request && SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_EVENTMASK(FF_ALLOC_EVENT)) != 1) {
+        if (is->videoq.abort_request && SDL_PeepEvents(&event, 1, SDL_GETEVENT, FF_ALLOC_EVENT, FF_ALLOC_EVENT) != 1) {
             while (!vp->allocated) {
                 SDL_CondWait(is->pictq_cond, is->pictq_mutex);
             }
@@ -1446,27 +1467,27 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts1, int64_
     }
 
     /* if the frame is not skipped, then display it */
-    if (vp->bmp) {
-        AVPicture pict = { { 0 } };
+    if (vp->picture) {
+        AVPicture *pict = vp->picture;
 #if CONFIG_AVFILTER
         avfilter_unref_bufferp(&vp->picref);
         vp->picref = src_frame->opaque;
 #endif
 
         /* get a pointer on the bitmap */
-        SDL_LockYUVOverlay (vp->bmp);
-
-        pict.data[0] = vp->bmp->pixels[0];
-        pict.data[1] = vp->bmp->pixels[2];
-        pict.data[2] = vp->bmp->pixels[1];
-
-        pict.linesize[0] = vp->bmp->pitches[0];
-        pict.linesize[1] = vp->bmp->pitches[2];
-        pict.linesize[2] = vp->bmp->pitches[1];
+//        SDL_LockYUVOverlay (vp->bmp);
+//
+//        pict.data[0] = vp->bmp->pixels[0];
+//        pict.data[1] = vp->bmp->pixels[2];
+//        pict.data[2] = vp->bmp->pixels[1];
+//
+//        pict.linesize[0] = vp->bmp->pitches[0];
+//        pict.linesize[1] = vp->bmp->pitches[2];
+//        pict.linesize[2] = vp->bmp->pitches[1];
 
 #if CONFIG_AVFILTER
         // FIXME use direct rendering
-        av_picture_copy(&pict, (AVPicture *)src_frame,
+        av_picture_copy(vp->picture, (AVPicture *)src_frame,
                         src_frame->format, vp->width, vp->height);
 #else
         sws_flags = av_get_int(sws_opts, "sws_flags", NULL);
@@ -1478,10 +1499,10 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts1, int64_
             exit(1);
         }
         sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,
-                  0, vp->height, pict.data, pict.linesize);
+                  0, vp->height, pict->data, pict->linesize);
 #endif
         /* update the bitmap content */
-        SDL_UnlockYUVOverlay(vp->bmp);
+//        SDL_UnlockYUVOverlay(vp->bmp);
 
         vp->pts = pts;
         vp->pos = pos;
@@ -2048,9 +2069,9 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
 #ifdef DEBUG
             {
                 static double last_clock;
-                printf("audio: delay=%0.3f clock=%0.3f pts=%0.3f\n",
-                       is->audio_clock - last_clock,
-                       is->audio_clock, pts);
+//                printf("audio: delay=%0.3f clock=%0.3f pts=%0.3f\n",
+//                       is->audio_clock - last_clock,
+//                       is->audio_clock, pts);
                 last_clock = is->audio_clock;
             }
 #endif
@@ -2267,14 +2288,14 @@ static int stream_component_open(VideoState *is, int stream_index)
         is->video_st = ic->streams[stream_index];
 
         packet_queue_start(&is->videoq);
-        is->video_tid = SDL_CreateThread(video_thread, is);
+        is->video_tid = SDL_CreateThread(video_thread, NULL, is);
         break;
     case AVMEDIA_TYPE_SUBTITLE:
         is->subtitle_stream = stream_index;
         is->subtitle_st = ic->streams[stream_index];
         packet_queue_start(&is->subtitleq);
 
-        is->subtitle_tid = SDL_CreateThread(subtitle_thread, is);
+        is->subtitle_tid = SDL_CreateThread(subtitle_thread, NULL, is);
         break;
     default:
         break;
@@ -2480,7 +2501,7 @@ static int read_thread(void *arg)
     if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
         ret = stream_component_open(is, st_index[AVMEDIA_TYPE_VIDEO]);
     }
-    is->refresh_tid = SDL_CreateThread(refresh_thread, is);
+    is->refresh_tid = SDL_CreateThread(refresh_thread, NULL, is);
     if (is->show_mode == SHOW_MODE_NONE)
         is->show_mode = ret >= 0 ? SHOW_MODE_VIDEO : SHOW_MODE_RDFT;
 
@@ -2668,7 +2689,7 @@ static VideoState *stream_open(const char *filename, AVInputFormat *iformat)
     is->continue_read_thread = SDL_CreateCond();
 
     is->av_sync_type = av_sync_type;
-    is->read_tid     = SDL_CreateThread(read_thread, is);
+    is->read_tid     = SDL_CreateThread(read_thread, NULL, is);
     if (!is->read_tid) {
         av_free(is);
         return NULL;
@@ -2762,12 +2783,12 @@ static void step_to_next_frame(VideoState *is)
 
 static void toggle_audio_display(VideoState *is)
 {
-    int bgcolor = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
-    is->show_mode = (is->show_mode + 1) % SHOW_MODE_NB;
-    fill_rectangle(screen,
-                is->xleft, is->ytop, is->width, is->height,
-                bgcolor);
-    SDL_UpdateRect(screen, is->xleft, is->ytop, is->width, is->height);
+//    int bgcolor = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
+//    is->show_mode = (is->show_mode + 1) % SHOW_MODE_NB;
+//    fill_rectangle(screen,
+//                is->xleft, is->ytop, is->width, is->height,
+//                bgcolor);
+//    SDL_UpdateRect(screen, is->xleft, is->ytop, is->width, is->height);
 }
 
 /* handle an event sent by the GUI */
@@ -2796,7 +2817,8 @@ static void event_loop(VideoState *cur_stream)
                 break;
             case SDLK_p:
             case SDLK_SPACE:
-                toggle_pause(cur_stream);
+//                toggle_pause(cur_stream);
+                    SDL_HideWindow(sdl_window);
                 break;
             case SDLK_s: // S: Step to next frame
                 step_to_next_frame(cur_stream);
@@ -2855,9 +2877,9 @@ static void event_loop(VideoState *cur_stream)
                 break;
             }
             break;
-        case SDL_VIDEOEXPOSE:
-            cur_stream->force_refresh = 1;
-            break;
+//        case SDL_VIDEOEXPOSE:
+//            cur_stream->force_refresh = 1;
+//            break;
         case SDL_MOUSEBUTTONDOWN:
             if (exit_on_mousedown) {
                 do_exit(cur_stream);
@@ -2895,13 +2917,13 @@ static void event_loop(VideoState *cur_stream)
                     stream_seek(cur_stream, ts, 0, 0);
                 }
             break;
-        case SDL_VIDEORESIZE:
-                screen = SDL_SetVideoMode(event.resize.w, event.resize.h, 0,
-                                          SDL_HWSURFACE|SDL_RESIZABLE|SDL_ASYNCBLIT|SDL_HWACCEL|SDL_NOFRAME);
-                screen_width  = cur_stream->width  = event.resize.w;
-                screen_height = cur_stream->height = event.resize.h;
-                cur_stream->force_refresh = 1;
-            break;
+//        case SDL_VIDEORESIZE:
+//                screen = SDL_SetVideoMode(event.resize.w, event.resize.h, 0,
+//                                          SDL_HWSURFACE|SDL_RESIZABLE|SDL_ASYNCBLIT|SDL_HWACCEL|SDL_NOFRAME);
+//                screen_width  = cur_stream->width  = event.resize.w;
+//                screen_height = cur_stream->height = event.resize.h;
+//                cur_stream->force_refresh = 1;
+//            break;
         case SDL_QUIT:
         case FF_QUIT_EVENT:
             do_exit(cur_stream);
@@ -3164,8 +3186,8 @@ int ffplay(int argc, char **argv)
     flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
     if (audio_disable)
         flags &= ~SDL_INIT_AUDIO;
-    if (display_disable)
-        SDL_putenv(dummy_videodriver); /* For the event queue, we always need a video driver. */
+//    if (display_disable)
+//        SDL_putenv(dummy_videodriver); /* For the event queue, we always need a video driver. */
 #if !defined(__MINGW32__) && !defined(__APPLE__)
     flags |= SDL_INIT_EVENTTHREAD; /* Not supported on Windows or Mac OS X */
 #endif
@@ -3183,7 +3205,7 @@ int ffplay(int argc, char **argv)
 #endif
     }
 
-    SDL_EventState(SDL_ACTIVEEVENT, SDL_IGNORE);
+//    SDL_EventState(SDL_ACTIVEEVENT, SDL_IGNORE);
     SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
     SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
 

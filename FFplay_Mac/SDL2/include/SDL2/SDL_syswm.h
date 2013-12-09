@@ -186,7 +186,7 @@ struct SDL_SysWMinfo
 #if defined(SDL_VIDEO_DRIVER_COCOA)
         struct
         {
-            NSWindow *window;           /* The Cocoa window */
+            __unsafe_unretained NSWindow *window;           /* The Cocoa window */
         } cocoa;
 #endif
 #if defined(SDL_VIDEO_DRIVER_UIKIT)

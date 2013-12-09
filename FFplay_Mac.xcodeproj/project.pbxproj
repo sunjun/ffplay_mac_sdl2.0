@@ -19,7 +19,6 @@
 		7B3FA6C5184EECEB00FF751C /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 7B3FA6C3184EECEB00FF751C /* InfoPlist.strings */; };
 		7B3FA6C7184EECEB00FF751C /* FFplay_MacTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 7B3FA6C6184EECEB00FF751C /* FFplay_MacTests.m */; };
 		7B3FA73718504C6400FF751C /* libavcodec.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B3FA72618504C6400FF751C /* libavcodec.a */; };
-		7B3FA73818504C6400FF751C /* libavdevice.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B3FA72718504C6400FF751C /* libavdevice.a */; };
 		7B3FA73918504C6400FF751C /* libavfilter.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B3FA72818504C6400FF751C /* libavfilter.a */; };
 		7B3FA73A18504C6400FF751C /* libavformat.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B3FA72918504C6400FF751C /* libavformat.a */; };
 		7B3FA73B18504C6400FF751C /* libavutil.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B3FA72A18504C6400FF751C /* libavutil.a */; };
@@ -82,7 +81,6 @@
 		7B3FA6C4184EECEB00FF751C /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		7B3FA6C6184EECEB00FF751C /* FFplay_MacTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFplay_MacTests.m; sourceTree = "<group>"; };
 		7B3FA72618504C6400FF751C /* libavcodec.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libavcodec.a; sourceTree = "<group>"; };
-		7B3FA72718504C6400FF751C /* libavdevice.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libavdevice.a; sourceTree = "<group>"; };
 		7B3FA72818504C6400FF751C /* libavfilter.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libavfilter.a; sourceTree = "<group>"; };
 		7B3FA72918504C6400FF751C /* libavformat.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libavformat.a; sourceTree = "<group>"; };
 		7B3FA72A18504C6400FF751C /* libavutil.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libavutil.a; sourceTree = "<group>"; };
@@ -275,7 +273,6 @@
 				7B7F04EA1851E6060065CDF4 /* libSDL2.dylib in Frameworks */,
 				7B3FA73C18504C6400FF751C /* libpostproc.a in Frameworks */,
 				7B7F04E81851E6060065CDF4 /* libSDL2-2.0.0.dylib in Frameworks */,
-				7B3FA73818504C6400FF751C /* libavdevice.a in Frameworks */,
 				7B3FA73D18504C6400FF751C /* libswresample.a in Frameworks */,
 				7B7F04ED1851E6060065CDF4 /* libSDL2main.a in Frameworks */,
 				7B3FA69D184EECEA00FF751C /* Cocoa.framework in Frameworks */,
@@ -420,7 +417,6 @@
 			isa = PBXGroup;
 			children = (
 				7B3FA72618504C6400FF751C /* libavcodec.a */,
-				7B3FA72718504C6400FF751C /* libavdevice.a */,
 				7B3FA72818504C6400FF751C /* libavfilter.a */,
 				7B3FA72918504C6400FF751C /* libavformat.a */,
 				7B3FA72A18504C6400FF751C /* libavutil.a */,
